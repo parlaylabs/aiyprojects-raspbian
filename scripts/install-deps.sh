@@ -25,23 +25,50 @@ then
     exec sudo -u $RUN_AS $0
 fi
 
-sudo apt-get -y install alsa-utils python3-all-dev python3-pip python3-numpy \
-  python3-scipy python3-virtualenv python3-rpi.gpio python3-pysocks \
-  rsync sox libttspico-utils ntpdate
-sudo pip3 install --upgrade pip virtualenv
+pushd ../
+wget https://d1uy6kk12x9igo.cloudfront.net/roombox-test/google-assistant-deps.zip
+unzip google-assistant-deps.zip
 
-cd "${scripts_dir}/.."
-virtualenv --system-site-packages -p python3 env
-env/bin/pip install -r requirements.txt
+pushd google-assistant-deps/gcc
+dpkg -i --force-depends *.deb
+popd
+
+pushd google-assistant-deps/python3
+dpkg -i --force-depends *.deb
+popd
+
+pushd google-assistant-deps/libffi
+dpkg -i --force-depends *.deb
+popd
+popd
+
+# Newer version of certifi has removed trusted root certificates from their packages 
+# and relies on system wide ones that are not installed, so we're downgrading this package
+python3 -m pip uninstall certifi
+
+python3 -m pip install -r requirements.txt
+
+#sudo -u highfive google-oauthlib-tool --client-secrets /var/persist/roombox/assistant.json --scope https://www.googleapis.com/auth/assistant-sdk-prototype --save --headless
+
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+
+#sudo apt-get -y install alsa-utils python3-all-dev python3-pip python3-numpy \
+#  python3-scipy python3-virtualenv python3-rpi.gpio python3-pysocks \
+#  rsync sox libttspico-utils ntpdate
+#sudo pip3 install --upgrade pip virtualenv
+
+#cd "${scripts_dir}/.."
+#virtualenv --system-site-packages -p python3 env
+#env/bin/pip install -r requirements.txt
 
 # The google-assistant-library is only available on ARMv7.
 if [[ "$(uname -m)" == "armv7l" ]] ; then
-  env/bin/pip install google-assistant-library==0.0.2
+  python3 -m pip install google-assistant-library==0.0.2
 fi
 
-for config in status-led.ini voice-recognizer.ini; do
-  if [[ ! -f "${HOME}/.config/${config}" ]] ; then
-    echo "Installing ${config}"
-    cp "config/${config}.default" "${HOME}/.config/${config}"
-  fi
-done
+config=voice-recognizer.ini
+if [[ ! -f "${HOME}/.config/${config}" ]] ; then
+  echo "Installing ${config}"
+  cp "config/${config}.default" "${HOME}/.config/${config}"
+fi
