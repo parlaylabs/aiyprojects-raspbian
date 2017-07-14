@@ -18,22 +18,19 @@
 
 set -o errexit
 
-if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root (use sudo)" 1>&2
+if [[ $EUID -e 0 ]]; then
+   echo "This script must not be run as root (use sudo)" 1>&2
    exit 1
 fi
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-asoundrc=/home/pi/.asoundrc
-global_asoundrc=/etc/asound.conf
+asoundrc=~/.asoundrc
 
-for rcfile in "$asoundrc" "$global_asoundrc"; do
-  if [[ -f "$rcfile" ]] ; then
-    echo "Renaming $rcfile to $rcfile.bak..."
-    sudo mv "$rcfile" "$rcfile.bak"
-  fi
-done
+if [[ -f "$asoundrc" ]] ; then
+  echo "Renaming $asoundrc to $asoundrc.bak..."
+  sudo mv "$asoundrc" "$asoundrc.bak"
+fi
 
-sudo cp scripts/asound.conf "$global_asoundrc"
-echo "Installed voiceHAT ALSA config at $global_asoundrc"
+sudo cp scripts/.asoundrc "$asoundrc"
+echo "Installed 48khz resampler ALSA config at $global_asoundrc"

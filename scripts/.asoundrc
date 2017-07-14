@@ -1,0 +1,53 @@
+# Define two possible outputs:
+#   a) Output to TV via HDMI
+#   b) Output via roombox line out
+#
+# Set default output to TV.
+#
+pcm.!default {
+	type asym
+	playback.pcm "tv_48khz"
+	capture.pcm "dsp_48khz"
+}
+
+pcm.dsp_48khz {
+  type rate
+  slave dsp_device
+}
+
+pcm.tv_48khz {
+  type rate
+  slave tv_device
+}
+
+pcm_slave.dsp_device {
+  pcm "plughw:0,2"
+  rate 48000
+}
+
+pcm_slave.tv_device {
+  pcm "plughw:0,4"
+  rate 48000
+}
+
+pcm.dsp {
+        type hw
+        card 0
+        device 2
+}
+
+# a) Output to TV via HDMI
+# card 0: tegrawm8903 [tegra-wm8903], device 4: ADSP + HDMI via AudioHub (H5A) dit-hifi-4 []
+pcm.tv {
+        type hw
+        card 0
+        device 4
+}
+
+# b) Output via roombox line out
+# card 0: tegrawm8903 [tegra-wm8903], device 5: ADSP + ANALOG via AudioHub (H5A) wm8903-hifi-5 []
+pcm.lineout {
+        type hw
+        card 0
+        device 5
+}
