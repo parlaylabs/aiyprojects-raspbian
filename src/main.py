@@ -173,7 +173,7 @@ def main():
             print('trigger=ok-google only works with the Assistant, not with '
                   'the Cloud Speech API.')
             sys.exit(1)
-        do_assistant_library(args, credentials, player, status_ui)
+        do_assistant_library(args, recognizer, credentials, player, status_ui)
     else:
         recorder = aiy.audio.Recorder(
             input_device=args.input_device, channels=1,
@@ -183,7 +183,7 @@ def main():
             do_recognition(args, recorder, recognizer, player, status_ui)
 
 
-def do_assistant_library(args, credentials, player, status_ui):
+def do_assistant_library(args, recognizer, credentials, player, status_ui):
     """Run a recognizer using the Google Assistant Library.
 
     The Google Assistant Library has direct access to the audio API, so this
@@ -203,7 +203,10 @@ installed with:
 
     say = tts.create_say(player)
     actor = action.make_actor(say)
+    action.add_commands_just_for_cloud_speech_api(actor, say)
 
+    recognizer.add_phrases(actor)
+    
     def process_event(event):
         logging.info(event)
 
@@ -242,8 +245,8 @@ def do_recognition(args, recorder, recognizer, player, status_ui):
 
     actor = action.make_actor(say)
 
-    if args.cloud_speech:
-        action.add_commands_just_for_cloud_speech_api(actor, say)
+    #if args.cloud_speech:
+    action.add_commands_just_for_cloud_speech_api(actor, say)
 
     recognizer.add_phrases(actor)
     recognizer.set_audio_logging_enabled(args.audio_logging)

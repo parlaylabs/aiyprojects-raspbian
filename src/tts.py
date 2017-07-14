@@ -20,8 +20,8 @@ import os
 import subprocess
 import tempfile
 
-import numpy as np
-from scipy import signal
+#import numpy as np
+#from scipy import signal
 
 import i18n
 
@@ -35,28 +35,28 @@ SAMPLE_RATE = 16000
 # from the result, avoiding resonance on the speaker and making the TTS easier
 # to understand. Calculated with:
 #   python3 src/tts.py --hpf-order 4 --hpf-freq-hz 1400 --hpf-gain-db 4
-FILTER_A = np.array([1., -3.28274474, 4.09441957, -2.29386174, 0.48627065])
-FILTER_B = np.array([1.10519522, -4.4207809, 6.63117135, -4.4207809, 1.10519522])
+#FILTER_A = np.array([1., -3.28274474, 4.09441957, -2.29386174, 0.48627065])
+#FILTER_B = np.array([1.10519522, -4.4207809, 6.63117135, -4.4207809, 1.10519522])
 
 logger = logging.getLogger('tts')
 
 
-def print_eq_coefficients(hpf_order, hpf_freq_hz, hpf_gain_db):
-    """Calculate and print the coefficients of the equalization filter."""
-    b, a = signal.butter(hpf_order, hpf_freq_hz / SAMPLE_RATE, 'highpass')
-    gain_factor = pow(10, hpf_gain_db / 20)
+#def print_eq_coefficients(hpf_order, hpf_freq_hz, hpf_gain_db):
+#    """Calculate and print the coefficients of the equalization filter."""
+#    b, a = signal.butter(hpf_order, hpf_freq_hz / SAMPLE_RATE, 'highpass')
+#    gain_factor = pow(10, hpf_gain_db / 20)
+#
+#    print('FILTER_A = np.%r' % a)
+#    print('FILTER_B = np.%r' % (b * gain_factor))
 
-    print('FILTER_A = np.%r' % a)
-    print('FILTER_B = np.%r' % (b * gain_factor))
 
-
-def create_eq_filter():
-    """Return a function that applies equalization to a numpy array."""
-
-    def eq_filter(raw_audio):
-        return signal.lfilter(FILTER_B, FILTER_A, raw_audio)
-
-    return eq_filter
+#def create_eq_filter():
+#    """Return a function that applies equalization to a numpy array."""
+#
+#    def eq_filter(raw_audio):
+#        return signal.lfilter(FILTER_B, FILTER_A, raw_audio)
+#
+#    return eq_filter
 
 
 def create_say(player):
@@ -64,7 +64,8 @@ def create_say(player):
     filter.
     """
     lang = i18n.get_language_code()
-    return functools.partial(say, player, eq_filter=create_eq_filter(), lang=lang)
+    #return functools.partial(say, player, eq_filter=create_eq_filter(), lang=lang)
+    return functools.partial(say, player, eq_filter=None, lang=lang)
 
 
 def say(player, words, eq_filter=None, lang='en-US'):
@@ -85,11 +86,11 @@ def say(player, words, eq_filter=None, lang='en-US'):
 
     os.close(fd)
 
-    try:
-        subprocess.call(['pico2wave', '--lang', lang, '-w', raw_wav, words])
-        subprocess.call(['play', raw_wav, '--no-show-progress', '--guard'])
-    finally:
-        os.unlink(raw_wav)
+    #try:
+    #    subprocess.call(['pico2wave', '--lang', lang, '-w', raw_wav, words])
+    #    subprocess.call(['play', raw_wav, '--no-show-progress', '--guard'])
+    #finally:
+    os.unlink(raw_wav)
 
 
 def main():
