@@ -15,6 +15,11 @@
 
 set -o errexit
 
+mount -o rw,remount /
+
+# Fool OTA to avoid update
+echo "v10.28.0-51-g0c83551" > /etc/hyperion-version
+
 scripts_dir="$(dirname "${BASH_SOURCE[0]}")"
 
 # make sure we're running as the owner of the checkout directory
@@ -25,8 +30,9 @@ then
     exec sudo -u $RUN_AS $0
 fi
 
-pushd ../
-wget https://d1uy6kk12x9igo.cloudfront.net/roombox-test/google-assistant-deps.zip
+cd ${scripts_dir}/../
+
+wget https://d1uy6kk12x9igo.cloudfront.net/roombox-test/google-assistant-deps.zip --no-check-certificate
 unzip google-assistant-deps.zip
 
 pushd google-assistant-deps/gcc
@@ -40,11 +46,15 @@ popd
 pushd google-assistant-deps/libffi
 dpkg -i --force-depends *.deb
 popd
+
+pushd google-assistant-deps/snowboy_deps
+dpkg -i --force-depends *.deb
 popd
 
 # Newer version of certifi has removed trusted root certificates from their packages 
 # and relies on system wide ones that are not installed, so we're downgrading this package
-python3 -m pip uninstall certifi
+#python3 -m pip uninstall certifi
+#python3 -m pip install certifi-2015.04.28
 
 python3 -m pip install -r requirements.txt
 
@@ -72,3 +82,31 @@ if [[ ! -f "${HOME}/.config/${config}" ]] ; then
   echo "Installing ${config}"
   cp "config/${config}.default" "${HOME}/.config/${config}"
 fi
+
+wget https://d1uy6kk12x9igo.cloudfront.net/roombox/v2.29.0-13-g39c9be1/fatline-roombox.deb --no-check-certificate
+dpkg -i fatline-roombox.deb
+
+# this should go into the startup script
+mkdir -p /tmp/leds-app/led0-blue/device/
+mkdir -p /tmp/leds-app/led0-red/device/
+
+ln -snf /tmp/leds-app /tmp/leds
+ln -snf /sys/class/leds /tmp/leds
+
+# temporary hack to get libgfortran and other libs for arm-linux-gnueabihf specifically into libraries path
+mv /usr/lib/arm-linux-gnueabihf/libgfortran.so.3* /usr/lib/
+mv /lib/arm-linux-gnueabihf/* /lib/
+
+#
+#multiarch-support_2.19-0ubuntu6.13_armhf.deb
+#libgfortran3_4.8.4-2ubuntu1-14.04.3_armhf.deb
+#mv /usr/lib/arm-linux-gnueabihf/libgfortran.so.3* /usr/lib/
+#libatlas3-base_3.10.1-4_armhf.deb
+#libatlas-base-dev_3.10.1-4_armhf.deb
+
+#install swig to build python3 snowboy:
+#libpcre3_8.39-3_armhf.deb
+#zlib1g_1.2.11.dfsg-0ubuntu1_armhf.deb
+#swig_3.0.10-1.1_armhf.deb
+#swig3.0_3.0.10-1.1_armhf.deb
+#mv /lib/arm-linux-gnueabihf/* /lib/
