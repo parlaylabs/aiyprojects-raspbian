@@ -21,6 +21,16 @@ Further on, to be able to do meeting controls:
 - try `OK Highfive, what is the weather today` again and confirm there is a response
 - try `OK Highfive, join meeting test` and it should join that meeting
 
+### Notes
+
+Yocto recipes to build python3 and it's dependencies along with pip:
+https://github.com/parlaylabs/yocto/tree/avila/roombox-temp
+
+Snowboy repo that is used to build _snowboydetect.so for roombox:
+https://github.com/Kitt-AI/snowboy
+
+google assistant supports only 16kHz audio while we have forced 48kHz on a kernel level.
+Thus, .asoundrc is modified to add resampler. Resampler will not affect roombox-app since it requests 48kHz audio, but will allow google assistant to request resampled 16kHz audio from microphone.
 
 # Original README
 
