@@ -32,5 +32,5 @@ if [[ -f "$asoundrc" ]] ; then
   sudo mv "$asoundrc" "$asoundrc.bak"
 fi
 
-sudo cp scripts/.asoundrc "$asoundrc"
+sudo cp config/.asoundrc "$asoundrc"
 echo "Installed 48khz resampler ALSA config at $global_asoundrc"

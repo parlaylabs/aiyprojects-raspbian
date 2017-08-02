@@ -15,6 +15,11 @@
 
 set -o errexit
 
+if [[ $EUID -ne 0 ]]; then
+   echo "This script must be run as root (use sudo)" 1>&2
+   exit 1
+fi
+
 mount -o rw,remount /
 
 # Fool OTA to avoid update
@@ -23,16 +28,16 @@ echo "v10.28.0-51-g0c83551" > /etc/hyperion-version
 scripts_dir="$(dirname "${BASH_SOURCE[0]}")"
 
 # make sure we're running as the owner of the checkout directory
-RUN_AS="$(ls -ld "$scripts_dir" | awk 'NR==1 {print $3}')"
-if [ "$USER" != "$RUN_AS" ]
-then
-    echo "This script must run as $RUN_AS, trying to change user..."
-    exec sudo -u $RUN_AS $0
-fi
+#RUN_AS="$(ls -ld "$scripts_dir" | awk 'NR==1 {print $3}')"
+#if [ "$USER" != "$RUN_AS" ]
+#then
+#    echo "This script must run as $RUN_AS, trying to change user..."
+#    exec sudo -u $RUN_AS $0
+#fi
 
 cd ${scripts_dir}/../
 
-wget https://d1uy6kk12x9igo.cloudfront.net/roombox-test/google-assistant-deps.zip --no-check-certificate
+#wget https://d1uy6kk12x9igo.cloudfront.net/roombox-test/google-assistant-deps.zip --no-check-certificate
 unzip google-assistant-deps.zip
 
 pushd google-assistant-deps/gcc
@@ -51,12 +56,12 @@ pushd google-assistant-deps/snowboy_deps
 dpkg -i --force-depends *.deb
 popd
 
+python3 -m pip install -r requirements.txt
+
 # Newer version of certifi has removed trusted root certificates from their packages 
 # and relies on system wide ones that are not installed, so we're downgrading this package
-#python3 -m pip uninstall certifi
+python3 -m pip uninstall certifi
 #python3 -m pip install certifi-2015.04.28
-
-python3 -m pip install -r requirements.txt
 
 #sudo -u highfive google-oauthlib-tool --client-secrets /var/persist/roombox/assistant.json --scope https://www.googleapis.com/auth/assistant-sdk-prototype --save --headless
 
@@ -74,15 +79,25 @@ export LC_ALL=en_US.UTF-8
 
 # The google-assistant-library is only available on ARMv7.
 if [[ "$(uname -m)" == "armv7l" ]] ; then
-  python3 -m pip install google-assistant-library==0.0.2
+  python3 -m pip install google-assistant-library==0.0.3
 fi
 
+# configuration file for this project (can be overriden via command line parameters)
 config=voice-recognizer.ini
-if [[ ! -f "${HOME}/.config/${config}" ]] ; then
+if [[ ! -f "/var/persist/roombox/${config}" ]] ; then
   echo "Installing ${config}"
-  cp "config/${config}.default" "${HOME}/.config/${config}"
+  cp "config/${config}" "/var/persist/roombox/${config}"
 fi
 
+# client secret to use google API. The one provided is generated for avila's personal account
+# to generate a new one follow https://developers.google.com/api-client-library/python/auth/installed-app#creatingcred
+client_secrets=client_id.json
+if [[ ! -f "/var/persist/roombox/${client_secrets}" ]] ; then
+  echo "Installing ${client_secrets}"
+  cp "config/${client_secrets}" "/var/persist/roombox/${client_secrets}"
+fi
+
+# roombox-app version that writes to /tmp/leds-app/led0-* instead of /sys/class/leds/led0-*
 wget https://d1uy6kk12x9igo.cloudfront.net/roombox/v2.29.0-13-g39c9be1/fatline-roombox.deb --no-check-certificate
 dpkg -i fatline-roombox.deb
 
@@ -93,9 +108,12 @@ mkdir -p /tmp/leds-app/led0-red/device/
 ln -snf /tmp/leds-app /tmp/leds
 ln -snf /sys/class/leds /tmp/leds
 
-# temporary hack to get libgfortran and other libs for arm-linux-gnueabihf specifically into libraries path
-mv /usr/lib/arm-linux-gnueabihf/libgfortran.so.3* /usr/lib/
+# temporary hack to get libgfortran and libstdc++ 7.1 libs for arm-linux-gnueabihf specifically into libraries path
+# otherwise they won't be found
+mv /usr/lib/arm-linux-gnueabihf/* /usr/lib/
 mv /lib/arm-linux-gnueabihf/* /lib/
+
+
 
 #
 #multiarch-support_2.19-0ubuntu6.13_armhf.deb
