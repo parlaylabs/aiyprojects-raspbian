@@ -2,7 +2,6 @@
 
 import collections
 import pyaudio
-import snowboydetect
 import time
 import wave
 import os
@@ -73,6 +72,12 @@ class HotwordDetector(object):
                  resource=RESOURCE_FILE,
                  sensitivity=[],
                  audio_gain=1):
+      self.do_init(decoder_model, resource, sensitivity, audio_gain)
+
+    def do_init(self, decoder_model,
+                 resource=RESOURCE_FILE,
+                 sensitivity=[],
+                 audio_gain=1):
 
         def audio_callback(in_data, frame_count, time_info, status):
             self.ring_buffer.extend(in_data)
@@ -87,6 +92,7 @@ class HotwordDetector(object):
             sensitivity = [sensitivity]
         model_str = ",".join(decoder_model)
 
+        from snowboy import snowboydetect
         self.detector = snowboydetect.SnowboyDetect(
             resource_filename=resource.encode(), model_str=model_str.encode())
         self.detector.SetAudioGain(audio_gain)
