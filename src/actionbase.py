@@ -70,6 +70,6 @@ class KeywordHandler(object):
 
     def handle(self, command):
         if self.can_handle(command):
-            self.action.run(command)
+            self.action.run(command, self.keyword)
             return True
         return False

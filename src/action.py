@@ -17,6 +17,9 @@
 import datetime
 import logging
 import subprocess
+import json
+import urllib
+import ssl
 
 import phue
 from rgbxy import Converter
@@ -258,12 +261,80 @@ class PowerCommand(object):
             logging.error("Error identifying power command.")
             self.say("Sorry I didn't identify that command")
 
+class MeetingControl(object):
+    """Shutdown or reboot the pi"""
+
+    def __init__(self, say, command, environment_url, domain_short_name, roombox_device_id, auth_cookie):
+        self.say = say
+        self.command = command
+        self.domain_short_name = domain_short_name
+        self.origin = 'https://%s.%s' % (domain_short_name, environment_url)
+        self.roombox_service_rpc_url = self.origin + '/_rpc/j/roomboxService'
+        self.roombox_device_id = roombox_device_id
+        self.auth_cookie = auth_cookie
+
+    def curl(self, url, data):
+      #params = json.dumps(data).encode('utf8')
+      params = urllib.parse.urlencode(data).encode("utf-8")
+      req = urllib.request.Request(url, data=params,
+                                  headers={
+                                    'content-type': 'application/x-www-form-urlencoded',
+                                    'Origin': self.origin,
+                                    'Accept': 'application/json, text/plain, */*',
+                                    'Cookie': self.auth_cookie
+                                  })
+      ctx = ssl.create_default_context()
+      ctx.check_hostname = False
+      ctx.verify_mode = ssl.CERT_NONE
+      response = urllib.request.urlopen(req, context=ctx)
+      return response.read().decode('utf8')
+    
+    def connectToRoombox(self, meeting_name):
+      data={"device_id":self.roombox_device_id,"domain_short_name":self.domain_short_name,"device_display_name":None,"proximity_token":None,"meeting_id":{"domain_short_name":self.domain_short_name,"meeting_name":meeting_name}}
+      data={"r":json.dumps(data).encode('utf8')}
+      logging.info("prepareToConnectRoombox data %s", data)
+      response = self.curl(self.roombox_service_rpc_url + '/prepareToConnectRoombox', data)
+      logging.info("prepareToConnectRoombox responise %s", response)
+
+      # roombox identity doesn't have a permission to request imediate join, so prepareToConnectRoombox response might not have challenge_token
+      # challenge_token is dumped to log as sent from server, so additional log parsing has to happen if we're using roombox identity to call connectRoombox
+      jsonResponse = json.loads(response)
+      jsonResponse['enable_listen_for_roombox_ack'] = True
+      data={"r":json.dumps(jsonResponse).encode('utf8')}
+      logging.info("connectRoombox data %s", data)
+      response = self.curl(self.roombox_service_rpc_url + '/connectRoombox', data)
+      logging.info("connectRoombox response %s", response)
+      
+    def disconnectRoombox(self):
+      data={"device_id":self.roombox_device_id}
+      data={"r":json.dumps(data).encode('utf8')}
+      logging.info("disconnectRoombox data %s", data)
+      response = self.curl(self.roombox_service_rpc_url + '/disconnectRoombox', data)
+      logging.info("disconnectRoombox response %s", response)
+    
+    def run(self, voice_command, keyword):
+        voice_command_variable = voice_command.lower()
+        # recognized voice transcript might sometimes have rescoring, so strip it
+        voice_command_variable = voice_command_variable.replace("<rescoring:try-on-device:first>", '')
+        voice_command_variable = voice_command_variable.replace("<rescoring:try-on-device:second>", '')
+        voice_command_variable = voice_command_variable.replace("</rescoring:try-on-device:first>", '')
+        voice_command_variable = voice_command_variable.replace("</rescoring:try-on-device:second>", '')
+        voice_command_variable = voice_command_variable.replace(keyword, '').strip()
+        if self.command == "join":
+          logging.info("Joining meeting %s", voice_command_variable)
+          self.connectToRoombox(voice_command_variable);
+        elif self.command == "leave":
+          logging.info("Leaving meeting")
+          self.disconnectRoombox()
+        else:
+          logging.error("Error identifying meeting control command '%s'.", voice_command)
+
 # =========================================
 # Makers! Implement your own actions here.
 # =========================================
 
 
-def make_actor(say):
+def make_actor(say, environment_url, domain_short_name, roombox_device_id, auth_cookie):
     """Create an actor to carry out the user's commands."""
 
     actor = actionbase.Actor()
@@ -280,12 +351,23 @@ def make_actor(say):
     actor.add_keyword(_('repeat after me'),
                       RepeatAfterMe(say, _('repeat after me')))
 
+
     # =========================================
     # Makers! Add your own voice commands here.
     # =========================================
 
     actor.add_keyword(_('raspberry power off'), PowerCommand(say, 'shutdown'))
     actor.add_keyword(_('raspberry reboot'), PowerCommand(say, 'reboot'))
+    
+    actor.add_keyword(_('join meeting'), MeetingControl(say, 'join', environment_url, domain_short_name, roombox_device_id, auth_cookie))
+    actor.add_keyword(_('join call'), MeetingControl(say, 'join', environment_url, domain_short_name, roombox_device_id, auth_cookie))
+    actor.add_keyword(_('enter meeting'), MeetingControl(say, 'join', environment_url, domain_short_name, roombox_device_id, auth_cookie))
+    actor.add_keyword(_('enter call'), MeetingControl(say, 'join', environment_url, domain_short_name, roombox_device_id, auth_cookie))
+
+    actor.add_keyword(_('leave meeting'), MeetingControl(say, 'leave', environment_url, domain_short_name, roombox_device_id, auth_cookie))
+    actor.add_keyword(_('leave call'), MeetingControl(say, 'leave', environment_url, domain_short_name, roombox_device_id, auth_cookie))
+    actor.add_keyword(_('exit meeting'), MeetingControl(say, 'leave', environment_url, domain_short_name, roombox_device_id, auth_cookie))
+    actor.add_keyword(_('exit call'), MeetingControl(say, 'leave', environment_url, domain_short_name, roombox_device_id, auth_cookie))
 
     return actor
 
@@ -312,7 +394,7 @@ being to come to harm.
 would conflict with the First Law.
 2: A robot must protect its own existence as long as such protection does not
 conflict with the First or Second Law."""))
-    simple_command(_('where are you from'), _("A galaxy far, far, just kidding. I'm from Seattle."))
-    simple_command(_('your name'), _('A machine has no name'))
+    simple_command(_('where are you from'), _("A galaxy far, far, just kidding. I'm from Redwood City."))
+    simple_command(_('your name'), _('I\'m proud to be called Highfive'))
 
     actor.add_keyword(_('time'), SpeakTime(say))

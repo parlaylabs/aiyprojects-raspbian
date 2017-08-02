@@ -20,6 +20,7 @@ import logging
 import os
 import os.path
 import sys
+import signal
 import threading
 import time
 
@@ -44,26 +45,35 @@ import tts
 
 logging.basicConfig(
     level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s:%(name)s:%(message)s"
+    format="[%(asctime)s] %(thread)d %(levelname)s:%(name)s:%(message)s"
 )
 logger = logging.getLogger('main')
 
-CACHE_DIR = os.getenv('XDG_CACHE_HOME') or os.path.expanduser('~/.cache')
-VR_CACHE_DIR = os.path.join(CACHE_DIR, 'voice-recognizer')
+# change these for your roombox and your client ID
+# All of these could be extracted from roombox log except for CLIENT_AUTH_COOKIE
+ENVIRONMENT_URL = 'go.nightly.fatline.io'
+SHORT_DOMAIN = 'go'
+ROOMBOX_DEVICE_ID = '58176a3560b218871466833a'
+CLIENT_AUTH_COOKIE = 'device_id=2087ea94-7a01-4f2b-6fca-e11bf543eb8d; fatline-auth=CAAY7LyfutMrIiDLueUAAbpkn/LRZNIGlmLXN8yRtiHnlLVxCpZaI8qOZzAIOtMCCAASrgIKDFceg3pXcEghfcPY7BDn5K372SsYACIXYWhtZWQudmlsYUBoaWdoZml2ZS5jb20qBUFobWVkMgRWaWxhOkAKDFQsX7PksIYLriFQHBIMaGlnaGZpdmUuY29tGgJnbyABKgphaG1lZC52aWxhMAE4AEDBq8b5xCpI8Ja0rf8nSAFSEggBEgxULF+z5LCGC64hUBwYAFISCAASDFQsX7PksIYLriFQHBgAUhIIBBIMVCxfs+SwhguuIVAcGABaAggAYMGrxvnEKnJgCgJnbxIYNTQyYzVmYjNlNGIwODYwYmFlMjE1MDFjGgQICBABGgQICRABGgQIARABGgQIAhABGgQIAxABGgQIBRABGgQIBBABGgQIChABGgQIDBABGgQIDhABGgQIDRABegIIAiIeCgxXHoN6V3BIIX3D2OkSCmltYWdlL2pwZWcYZCBk; intercom-session-u0roaklw=TmIrR3B1YWMzUkZYSUYwdlcydUd5ODJJb0dvWmtOc3RsbFBJSEVLMTRuRjNDaHIyOHVhV1FQZkpTOGY1QzN6Yi0tZHJsUmpPWENIaVd3ZHpZU0g1N1Zodz09--612bf2275ed03fb92ccd398aaec04a620e3fa482'
+# roombox identity doesn't have a permission to request imediate join, so prepareToConnectRoombox response might not have challenge_token
+# challenge_token is dumped to log as sent from server, so additional log parsing has to happen if we're using roombox identity to call connectRoombox
+# for that reason, grab user's fatline-auth from native-app's or chrome's network console
 
-CONFIG_DIR = os.getenv('XDG_CONFIG_HOME') or os.path.expanduser('~/.config')
+CONFIG_DIR = os.getenv('XDG_CONFIG_HOME') or '/var/persist/roombox'
 CONFIG_FILES = [
     '/etc/voice-recognizer.ini',
     os.path.join(CONFIG_DIR, 'voice-recognizer.ini')
 ]
 
 # Legacy fallback: old locations of secrets/credentials.
-OLD_CLIENT_SECRETS = os.path.expanduser('~/client_secrets.json')
+OLD_CLIENT_SECRETS = os.path.expanduser('/var/persist/roombox/client_secrets.json')
 OLD_SERVICE_CREDENTIALS = os.path.expanduser('~/credentials.json')
 
 ASSISTANT_CREDENTIALS = (
-    os.path.join(VR_CACHE_DIR, 'assistant_credentials.json')
+    '/var/persist/roombox/assistant_credentials.json'
 )
+
+HOTWORD_MODEL_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "snowboy", "resources", "Highfive.pmdl")
 
 
 def try_to_get_credentials(client_secrets):
@@ -71,9 +81,6 @@ def try_to_get_credentials(client_secrets):
 
     if os.path.exists(ASSISTANT_CREDENTIALS):
         return auth_helpers.load_credentials(ASSISTANT_CREDENTIALS)
-
-    if not os.path.exists(VR_CACHE_DIR):
-        os.mkdir(VR_CACHE_DIR)
 
     if not os.path.exists(client_secrets) and os.path.exists(OLD_CLIENT_SECRETS):
         client_secrets = OLD_CLIENT_SECRETS
@@ -121,7 +128,7 @@ def main():
     parser.add_argument('-O', '--output-device', default='default',
                         help='Name of the audio output device')
     parser.add_argument('-T', '--trigger', default='gpio',
-                        choices=['clap', 'gpio', 'ok-google'], help='Trigger to use')
+                        choices=['clap', 'gpio', 'ok-google', 'ok-snowboy'], help='Trigger to use')
     parser.add_argument('--cloud-speech', action='store_true',
                         help='Use the Cloud Speech API instead of the Assistant API')
     parser.add_argument('-L', '--language', default='en-US',
@@ -174,6 +181,12 @@ def main():
                   'the Cloud Speech API.')
             sys.exit(1)
         do_assistant_library(args, recognizer, credentials, player, status_ui)
+    elif args.trigger == 'ok-snowboy':
+        if args.cloud_speech:
+            print('trigger=ok-snowboy only works with the Assistant, not with '
+                  'the Cloud Speech API.')
+            sys.exit(1)
+        do_snowboy(args, recognizer, credentials, player, status_ui)
     else:
         recorder = aiy.audio.Recorder(
             input_device=args.input_device, channels=1,
@@ -182,6 +195,65 @@ def main():
         with recorder:
             do_recognition(args, recorder, recognizer, player, status_ui)
 
+def do_snowboy(args, recognizer, credentials, player, status_ui):
+    """Run a recognizer using snowboy hotword detector and continue 
+    conversation using Google Assistant SDK (gRPC) in order to avoid google's hotword.
+    """
+
+    say = tts.create_say(player)
+    actor = action.make_actor(say, ENVIRONMENT_URL, SHORT_DOMAIN, ROOMBOX_DEVICE_ID, CLIENT_AUTH_COOKIE)
+    action.add_commands_just_for_cloud_speech_api(actor, say)
+
+    recognizer.add_phrases(actor)
+    
+    status_ui.status('initializing snowboy')
+    from snowboy import snowboydecoder
+    detector = snowboydecoder.HotwordDetector(HOTWORD_MODEL_PATH, sensitivity=0.5)
+    
+    from assistant import Assistant
+    assistant = Assistant(credentials)
+    
+    interrupted = False
+    def signal_handler(signal, frame):
+        interrupted = True
+        sys.exit(1)
+
+    signal.signal(signal.SIGINT, signal_handler)
+
+    def interrupt_callback():
+      return interrupted;
+
+    def recognized_callback(spoken_text):
+      if actor.can_handle(spoken_text):
+        actor.handle(spoken_text)
+        return args.assistant_always_responds
+      return True
+
+    def detect_callback():
+      logger.info('snowboy detected hotword')
+      detector.terminate()
+      #snowboydecoder.play_audio_file(snowboydecoder.DETECT_DING)
+      # Assistant is using sounddevice module, an interface to PortAudio
+      # Since it's using RawStream, PortAudio is acquiring exclusive lock on a device
+      # Since roombox-app is using it, exclusive lock can not be acquired
+      # TODO: change assistant to use pyaudio
+      try:
+        assistant.assist(recognized_callback)
+      except:
+        logger.warning('assistant could not acquire audio input stream')
+      logger.info('snowboy restart')
+      #snowboydecoder.play_audio_file(snowboydecoder.DETECT_DONG)
+      detector.do_init("snowboy/resources/Highfive.pmdl", sensitivity=0.5)
+      detector.start(detected_callback=detect_callback,
+                 interrupt_check=interrupt_callback,
+                 sleep_time=0.03)
+
+    status_ui.status('snowboy all set')
+    detector.start(detected_callback=detect_callback,
+               interrupt_check=interrupt_callback,
+               sleep_time=0.03)
+
+    detector.terminate()
 
 def do_assistant_library(args, recognizer, credentials, player, status_ui):
     """Run a recognizer using the Google Assistant Library.
@@ -207,37 +279,89 @@ installed with:
 
     recognizer.add_phrases(actor)
     
-    def process_event(event):
-        logging.info(event)
+    status_ui.status('initializing snowboy')
+    from snowboy import snowboydecoder
+    detector = snowboydecoder.HotwordDetector("snowboy/resources/Highfive.pmdl", sensitivity=0.5)
+    
+    interrupted = False
+    def signal_handler(signal, frame):
+        interrupted = True
+        logger.info('interrupted')
+        #sys.exit(1)
 
-        if event.type == EventType.ON_START_FINISHED:
-            status_ui.status('ready')
-            if sys.stdout.isatty():
-                print('Say "OK, Google" then speak, or press Ctrl+C to quit...')
+    #signal.signal(signal.SIGINT, signal_handler)
 
-        elif event.type == EventType.ON_CONVERSATION_TURN_STARTED:
-            status_ui.status('listening')
+    def interrupt_callback():
+      return False;
 
-        elif event.type == EventType.ON_END_OF_UTTERANCE:
-            status_ui.status('thinking')
+    def do_assist():
+      with Assistant(credentials) as assistant:
+        def process_event(event):
+            logging.info(event)
 
-        elif event.type == EventType.ON_RECOGNIZING_SPEECH_FINISHED and \
-                event.args and actor.can_handle(event.args['text']):
-            if not args.assistant_always_responds:
-                assistant.stop_conversation()
-            actor.handle(event.args['text'])
+            if event.type == EventType.ON_START_FINISHED:
+                status_ui.status('ready')
+                if sys.stdout.isatty():
+                    print('Say "OK, Google" then speak, or press Ctrl+C to quit...')
 
-        elif event.type == EventType.ON_CONVERSATION_TURN_FINISHED:
-            status_ui.status('ready')
+                assistant.start_conversation()
+                logger.info('Trying to listen')
 
-        elif event.type == EventType.ON_ASSISTANT_ERROR and \
-                event.args and event.args['is_fatal']:
-            sys.exit(1)
+            elif event.type == EventType.ON_CONVERSATION_TURN_STARTED:
+                status_ui.status('listening')
 
-    with Assistant(credentials) as assistant:
+            elif event.type == EventType.ON_END_OF_UTTERANCE:
+                status_ui.status('thinking')
+
+            elif event.type == EventType.ON_RECOGNIZING_SPEECH_FINISHED and \
+                    event.args and actor.can_handle(event.args['text']):
+                if not args.assistant_always_responds:
+                    assistant.stop_conversation()
+                actor.handle(event.args['text'])
+
+            elif event.type == EventType.ON_CONVERSATION_TURN_FINISHED:
+                status_ui.status('ready')
+                return False
+
+            elif event.type == EventType.ON_ASSISTANT_ERROR and \
+                    event.args and event.args['is_fatal']:
+                status_ui.status('terminating')
+                return False
+                #sys.exit(1)
+
+            return True
+
         for event in assistant.start():
-            process_event(event)
+            rtn = process_event(event)
+            logger.info('return %s...', rtn)
+            if not rtn:
+              logger.info('breaking out')
+              assistant.set_mic_mute(True)
+              logger.info('broke out')
+              break
+        logger.info('alive 1')
+      logger.info('alive 2')
+      
+    def detect_callback():
+      logger.info('snowboy detected hotword')
+      detector.terminate()
+      #snowboydecoder.play_audio_file(snowboydecoder.DETECT_DING)
+      do_assist()
+      logger.info('snowboy restart')
+      #snowboydecoder.play_audio_file(snowboydecoder.DETECT_DONG)
+      detector.do_init("snowboy/resources/Highfive.pmdl", sensitivity=0.5)
+      detector.start(detected_callback=detect_callback,
+                 interrupt_check=interrupt_callback,
+                 sleep_time=0.03)
 
+    status_ui.status('snowboy all set')
+    detector.start(detected_callback=detect_callback,
+               interrupt_check=interrupt_callback,
+               sleep_time=0.03)
+
+    logger.info('finishing')
+    detector.terminate()
+    
 
 def do_recognition(args, recorder, recognizer, player, status_ui):
     """Configure and run the recognizer."""
