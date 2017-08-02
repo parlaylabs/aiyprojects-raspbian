@@ -8,3 +8,5 @@ phue==0.9
 rgbxy==0.5
 google-auth-oauthlib==0.1.0
 google-assistant-sdk
+click
+sounddevice
