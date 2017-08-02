@@ -20,6 +20,7 @@ import os.path
 
 import google_auth_oauthlib.flow
 import google.auth.transport
+import google.auth.transport.grpc
 import google.oauth2.credentials
 
 
@@ -45,15 +46,22 @@ def load_credentials(credentials_path):
     credentials.refresh(http_request)
     return credentials
 
+def create_grpc_channel(api_endpoint, credentials):
+  http_request = google.auth.transport.requests.Request()
+  credentials.refresh(http_request)
+
+  return google.auth.transport.grpc.secure_authorized_channel(
+        credentials, http_request, api_endpoint)
+
 
 def credentials_flow_interactive(client_secrets_path):
     flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
         client_secrets_path,
         scopes=[ASSISTANT_OAUTH_SCOPE])
-    if 'DISPLAY' in os.environ:
-        credentials = flow.run_local_server()
-    else:
-        credentials = flow.run_console()
+    #if 'DISPLAY' in os.environ:
+    #    credentials = flow.run_local_server()
+    #else:
+    credentials = flow.run_console()
     return credentials
 
 
