@@ -32,6 +32,16 @@ https://github.com/Kitt-AI/snowboy
 google assistant supports only 16kHz audio while we have forced 48kHz on a kernel level.
 Thus, .asoundrc is modified to add resampler. Resampler will not affect roombox-app since it requests 48kHz audio, but will allow google assistant to request resampled 16kHz audio from microphone.
 
+### Bugs
+
+Assistant is using sounddevice module, an interface to PortAudio. Since it's using RawStream, PortAudio is acquiring exclusive lock on a device.
+But, roombox-app that's in a meeting is using it, so exclusive lock can not be acquired
+
+### TODOs
+
+- change assistant to use pyaudio
+- implement lightring change when hitword is triggered and when google assistant is finished
+
 # Original README
 
 This repository contains the source code for the AIYProjects "Voice Kit". See
